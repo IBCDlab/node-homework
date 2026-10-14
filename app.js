@@ -1,0 +1,27 @@
+const express = require("express");
+
+const app = express();
+
+const timeRoutes = require("./routes/timeRoutes");
+
+app.use(express.json());
+
+app.use("/api", timeRoutes);
+
+app.get("/", (req, res) => {
+  res.send("Hello, World!");
+});
+
+app.post("/testpost", (req, res) => {
+  res.status(200).json({
+    message: "POST route works",
+  });
+});
+
+const port = process.env.PORT || 3000;
+
+const server = app.listen(port, () => {
+  console.log(`Server is listening on port ${port}...`);
+});
+
+module.exports = { app, server };
