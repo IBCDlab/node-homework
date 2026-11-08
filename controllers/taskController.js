@@ -1,15 +1,7 @@
+const pool = require("../db/pg-pool");
 const { taskSchema, patchTaskSchema } = require("../validation/taskSchema");
 
-const taskCounter = (() => {
-  let lastTaskNumber = 0;
-  return () => {
-    lastTaskNumber += 1;
-
-    return lastTaskNumber;
-  };
-})();
-
-exports.create = async (req, res) => {
+exports.create = async (req, res, next) => {
   if (!req.body) req.body = {};
 
   const { error, value } = taskSchema.validate(req.body);
@@ -20,37 +12,37 @@ exports.create = async (req, res) => {
     });
   }
 
-  const newTask = {
-    id: taskCounter(),
-    userId: global.user_id.email,
-    ...value,
-  };
+  try {
+    const result = await pool.query(
+      `INSERT INTO tasks (title, is_completed, user_id)
+       VALUES ($1, $2, $3)
+       RETURNING id, title, is_completed`,
+      [value.title, value.isCompleted, global.user_id],
+    );
 
-  global.tasks.push(newTask);
-
-  const { userId, ...sanitizedTask } = newTask;
-
-  return res.status(201).json(sanitizedTask);
+    return res.status(201).json(result.rows[0]);
+  } catch (err) {
+    if (next) return next(err);
+    throw err;
+  }
 };
 
-exports.index = (req, res) => {
-  const userTasks = global.tasks.filter(
-    (task) => task.userId === global.user_id.email,
+exports.index = async (req, res) => {
+  const result = await pool.query(
+    "SELECT id, title, is_completed FROM tasks WHERE user_id = $1",
+    [global.user_id],
   );
 
-  if (userTasks.length === 0) {
+  const tasks = result.rows;
+
+  if (tasks.length === 0) {
     return res.sendStatus(404);
   }
 
-  const sanitizedTasks = userTasks.map((task) => {
-    const { userId, ...sanitizedTask } = task;
-    return sanitizedTask;
-  });
-
-  return res.status(200).json(sanitizedTasks);
+  return res.status(200).json(tasks);
 };
 
-exports.show = (req, res) => {
+exports.show = async (req, res) => {
   const taskId = parseInt(req.params?.id);
 
   if (Number.isNaN(taskId)) {
@@ -59,23 +51,26 @@ exports.show = (req, res) => {
     });
   }
 
-  const task = global.tasks.find(
-    (task) => task.id === taskId && task.userId === global.user_id.email,
+  const result = await pool.query(
+    `SELECT id, title, is_completed
+     FROM tasks
+     WHERE id = $1 AND user_id = $2`,
+    [taskId, global.user_id],
   );
+
+  const task = result.rows[0];
 
   if (!task) {
     return res.sendStatus(404);
   }
 
-  const { userId, ...sanitizedTask } = task;
-
-  return res.status(200).json(sanitizedTask);
+  return res.status(200).json(task);
 };
 
-exports.update = (req, res) => {
+exports.update = async (req, res) => {
   if (!req.body) req.body = {};
 
-  const { error, value } = patchTaskSchema.validate(req.body);
+  const { error, value: taskChange } = patchTaskSchema.validate(req.body);
 
   if (error) {
     return res.status(400).json({
@@ -91,23 +86,38 @@ exports.update = (req, res) => {
     });
   }
 
-  const task = global.tasks.find(
-    (task) => task.id === taskId && task.userId === global.user_id.email,
+  let keys = Object.keys(taskChange);
+
+  if (keys.length === 0) {
+    return res.status(400).json({
+      message: "No fields to update",
+    });
+  }
+
+  keys = keys.map((key) => (key === "isCompleted" ? "is_completed" : key));
+
+  const setClauses = keys.map((key, i) => `${key} = $${i + 1}`).join(", ");
+
+  const idParm = `$${keys.length + 1}`;
+  const userParm = `$${keys.length + 2}`;
+
+  const result = await pool.query(
+    `UPDATE tasks SET ${setClauses}
+     WHERE id = ${idParm} AND user_id = ${userParm}
+     RETURNING id, title, is_completed`,
+    [...Object.values(taskChange), taskId, global.user_id],
   );
 
-  if (!task) {
+  const updatedTask = result.rows[0];
+
+  if (!updatedTask) {
     return res.sendStatus(404);
   }
 
-  Object.assign(task, value);
-
-  const { userId, ...sanitizedTask } = task;
-
-  return res.status(200).json(sanitizedTask);
+  return res.status(200).json(updatedTask);
 };
 
-exports.deleteTask = (req, res) => {
-
+exports.deleteTask = async (req, res) => {
   const taskId = parseInt(req.params?.id);
 
   if (Number.isNaN(taskId)) {
@@ -116,21 +126,18 @@ exports.deleteTask = (req, res) => {
     });
   }
 
-  const taskIndex = global.tasks.findIndex(
-    (task) => task.id === taskId && task.userId === global.user_id.email,
+  const result = await pool.query(
+    `DELETE FROM tasks
+     WHERE id = $1 AND user_id = $2
+     RETURNING id, title, is_completed`,
+    [taskId, global.user_id],
   );
 
-  if (taskIndex === -1) {
+  const deletedTask = result.rows[0];
+
+  if (!deletedTask) {
     return res.sendStatus(404);
   }
 
-  const task = global.tasks[taskIndex];
-
-  const { userId, ...sanitizedTask } = task;
-
-  global.tasks.splice(taskIndex, 1);
-
-  return res.status(200).json(sanitizedTask);
+  return res.status(200).json(deletedTask);
 };
-
-
