@@ -21,3 +21,5 @@ package-lock.json
 .DS_Store
 .DS_Store?
 testtasklist-backup.json
+/generated/prisma
+tasklist_backup.dump
