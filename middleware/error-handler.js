@@ -1,4 +1,6 @@
 function errorHandler(err, req, res, next) {
+  console.error("SERVER ERROR:", err);
+
   if (err.name === "PrismaClientInitializationError") {
     console.error("Couldn't connect to the database. Is it running?");
   }
