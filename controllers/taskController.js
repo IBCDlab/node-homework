@@ -119,12 +119,6 @@ exports.index = async (req, res) => {
     hasPrev: page > 1,
   };
 
-  if (tasks.length === 0) {
-    return res.status(404).json({
-      message: "The task was not found.",
-    });
-  }
-
   return res.status(200).json({
     tasks: tasks,
     pagination: pagination,
@@ -161,7 +155,7 @@ exports.show = async (req, res, next) => {
     });
 
     if (!task) {
-      return res.sendStatus(404).json({
+      return res.Status(404).json({
         message: "The task was not found",
       });
     }
